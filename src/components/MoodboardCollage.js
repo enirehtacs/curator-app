@@ -1,136 +1,212 @@
 import { useState } from "react";
+import { COLOUR_HEX } from "../data/colours";
 
 const NUMS = ["①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩"];
 
-// Layout templates — all items on ONE canvas
-// Each slot: { x, y, w, h } as % of canvas width/height
-const CANVAS_LAYOUTS = {
-  1: [{ x:15, y:10, w:70, h:80 }],
+function sizeClass(item) {
+  const cat = item.category;
+  const sub = (item.subtype || "").toLowerCase();
+  if (cat === "Sofa" || cat === "Bed") return "anchor";
+  if (cat === "Table" && /dining|coffee|console/.test(sub)) return "anchor";
+  if (cat === "Storage" || cat === "Table" || cat === "Chair" || cat === "Outdoor" || cat === "Kitchen/Dining") return "medium";
+  if (cat === "Lighting") return "small";
+  return "tiny"; // Accent, Ottoman, etc.
+}
+const RANK = { anchor: 0, medium: 1, small: 2, tiny: 3 };
+
+// Bento-style mosaic templates — cells tile edge-to-edge (0-100 local box), biggest slot first.
+// The 9-slot template is modelled on a classic gallery-wall collage layout.
+const GRID_TEMPLATES = {
+  1: [{ x: 8, y: 4, w: 84, h: 92 }],
   2: [
-    { x:2,  y:8,  w:47, h:84 },
-    { x:51, y:8,  w:47, h:84 },
+    { x: 0, y: 0, w: 48, h: 100 },
+    { x: 52, y: 0, w: 48, h: 100 },
   ],
   3: [
-    { x:2,  y:5,  w:47, h:55 },
-    { x:51, y:5,  w:47, h:55 },
-    { x:18, y:63, w:64, h:32 },
+    { x: 0, y: 0, w: 48, h: 48 },
+    { x: 52, y: 0, w: 48, h: 48 },
+    { x: 0, y: 52, w: 100, h: 48 },
   ],
   4: [
-    { x:2,  y:4,  w:47, h:45 },
-    { x:51, y:4,  w:47, h:45 },
-    { x:2,  y:52, w:47, h:44 },
-    { x:51, y:52, w:47, h:44 },
+    { x: 0, y: 0, w: 48, h: 48 },
+    { x: 52, y: 0, w: 48, h: 48 },
+    { x: 0, y: 52, w: 48, h: 48 },
+    { x: 52, y: 52, w: 48, h: 48 },
   ],
   5: [
-    { x:2,  y:4,  w:47, h:55 },
-    { x:51, y:4,  w:29, h:55 },
-    { x:82, y:4,  w:16, h:55 },
-    { x:2,  y:62, w:30, h:34 },
-    { x:34, y:62, w:64, h:34 },
+    { x: 0, y: 0, w: 48, h: 64 },
+    { x: 52, y: 0, w: 29, h: 64 },
+    { x: 83, y: 0, w: 17, h: 64 },
+    { x: 0, y: 66, w: 31, h: 34 },
+    { x: 33, y: 66, w: 67, h: 34 },
   ],
   6: [
-    { x:2,  y:4,  w:30, h:45 },
-    { x:34, y:4,  w:30, h:45 },
-    { x:66, y:4,  w:32, h:45 },
-    { x:2,  y:52, w:30, h:44 },
-    { x:34, y:52, w:30, h:44 },
-    { x:66, y:52, w:32, h:44 },
+    { x: 0, y: 0, w: 31, h: 48 },
+    { x: 33, y: 0, w: 31, h: 48 },
+    { x: 66, y: 0, w: 34, h: 48 },
+    { x: 0, y: 52, w: 31, h: 48 },
+    { x: 33, y: 52, w: 31, h: 48 },
+    { x: 66, y: 52, w: 34, h: 48 },
   ],
   7: [
-    { x:2,  y:4,  w:30, h:45 },
-    { x:34, y:4,  w:30, h:45 },
-    { x:66, y:4,  w:32, h:45 },
-    { x:2,  y:52, w:21, h:44 },
-    { x:25, y:52, w:21, h:44 },
-    { x:48, y:52, w:21, h:44 },
-    { x:71, y:52, w:27, h:44 },
+    { x: 0, y: 0, w: 31, h: 48 },
+    { x: 33, y: 0, w: 31, h: 48 },
+    { x: 66, y: 0, w: 34, h: 48 },
+    { x: 0, y: 52, w: 22, h: 48 },
+    { x: 24, y: 52, w: 22, h: 48 },
+    { x: 48, y: 52, w: 22, h: 48 },
+    { x: 72, y: 52, w: 28, h: 48 },
   ],
   8: [
-    { x:2,  y:4,  w:23, h:44 },
-    { x:27, y:4,  w:23, h:44 },
-    { x:52, y:4,  w:23, h:44 },
-    { x:77, y:4,  w:21, h:44 },
-    { x:2,  y:52, w:23, h:44 },
-    { x:27, y:52, w:23, h:44 },
-    { x:52, y:52, w:23, h:44 },
-    { x:77, y:52, w:21, h:44 },
+    { x: 0, y: 0, w: 22, h: 48 },
+    { x: 24, y: 0, w: 22, h: 48 },
+    { x: 48, y: 0, w: 22, h: 48 },
+    { x: 72, y: 0, w: 28, h: 48 },
+    { x: 0, y: 52, w: 22, h: 48 },
+    { x: 24, y: 52, w: 22, h: 48 },
+    { x: 48, y: 52, w: 22, h: 48 },
+    { x: 72, y: 52, w: 28, h: 48 },
+  ],
+  9: [
+    { x: 63, y: 0, w: 34, h: 31 },   // top-right
+    { x: 16, y: 12, w: 44, h: 19 },  // top-left wide
+    { x: 9, y: 32, w: 20, h: 25 },   // mid-left
+    { x: 31, y: 32, w: 44, h: 38 },  // centre — biggest, the anchor slot
+    { x: 78, y: 32, w: 19, h: 21 },  // mid-right upper
+    { x: 78, y: 54, w: 22, h: 16 },  // mid-right lower
+    { x: 0, y: 58, w: 29, h: 14 },   // small band, lower-left
+    { x: 16, y: 72, w: 33, h: 28 },  // bottom-left
+    { x: 50, y: 72, w: 43, h: 28 },  // bottom-right
   ],
 };
 
-function getLayout(count) {
-  const capped = Math.min(count, 8);
-  return CANVAS_LAYOUTS[capped] || CANVAS_LAYOUTS[8];
+// Canvas zones — centre grid box flanked by left/right margins reserved for side labels
+const GRID_X0 = 16, GRID_X1 = 84;
+const GRID_Y0 = 4, GRID_Y1 = 96;
+const CELL_GAP = 0.8; // % inset applied to each side of every cell, creating a thin gutter
+
+// Assign items to grid slots (biggest slot goes to the highest-ranked/"anchor" item),
+// then bucket each into a left/right side-label column based on its slot's position.
+function computeLayout(items) {
+  const shown = items.slice(0, 9);
+  const n = shown.length;
+  if (n === 0) return { cells: [], leftLabels: [], rightLabels: [] };
+  const template = GRID_TEMPLATES[n];
+
+  const withMeta = shown.map((item, num) => ({ item, num, cls: sizeClass(item) }));
+  const bySize = [...withMeta].sort((a, b) => RANK[a.cls] - RANK[b.cls]);
+  const slotsByArea = template.map((slot, i) => ({ slot, i })).sort((a, b) => (b.slot.w * b.slot.h) - (a.slot.w * a.slot.h));
+
+  const cells = bySize.map((m, i) => {
+    const slot = slotsByArea[i].slot;
+    const x = GRID_X0 + (slot.x / 100) * (GRID_X1 - GRID_X0);
+    const y = GRID_Y0 + (slot.y / 100) * (GRID_Y1 - GRID_Y0);
+    const w = (slot.w / 100) * (GRID_X1 - GRID_X0);
+    const h = (slot.h / 100) * (GRID_Y1 - GRID_Y0);
+    const bucket = slot.x + slot.w / 2 < 50 ? "left" : "right";
+    return { item: m.item, num: m.num, x, y, w, h, bucket };
+  });
+
+  const stack = (bucket) => {
+    const list = cells.filter(c => c.bucket === bucket).sort((a, b) => a.y - b.y);
+    return list.map((c, i) => ({ ...c, labelY: list.length === 1 ? 50 : 6 + i * (88 / (list.length - 1)) }));
+  };
+
+  return { cells, leftLabels: stack("left"), rightLabels: stack("right") };
 }
 
-function CollageCard({ item, layout, idx, showBudget, showInfo }) {
+function CollagePhoto({ cell, showBudget }) {
+  const { item, num, x, y, w, h } = cell;
   const [err, setErr] = useState(false);
+  const g = CELL_GAP;
   return (
-    <div style={{
-      position:"absolute",
-      left:`${layout.x}%`, top:`${layout.y}%`,
-      width:`${layout.w}%`, height:`${layout.h}%`,
-      transition:"transform 0.15s",
-    }}>
-      <div style={{
-        width:"100%", height:"100%",
-        borderRadius:12,
-        overflow:"hidden",
-        boxShadow:"0 3px 16px rgba(0,0,0,0.13)",
-        position:"relative",
-        background:"#EDE8E0",
-      }}>
+    <div style={{ position: "absolute", left: `${x + g}%`, top: `${y + g}%`, width: `${w - 2 * g}%`, height: `${h - 2 * g}%` }}>
+      <div style={{ width: "100%", height: "100%", borderRadius: 7, overflow: "hidden", position: "relative", background: "#EDE8E0" }}>
         {item.photo && !err ? (
           <img
             src={item.photo}
             alt={item.name}
-            onError={()=>setErr(true)}
-            style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+            onError={() => setErr(true)}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
           />
         ) : (
-          <div style={{
-            width:"100%", height:"100%",
-            background:`hsl(${(idx*53+20)%360},12%,86%)`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            flexDirection:"column", gap:4,
-          }}>
-            <span style={{fontSize:28,opacity:0.35}}>🪑</span>
-            <span style={{fontSize:10,color:"#888",fontWeight:500,textAlign:"center",padding:"0 6px"}}>{item.name}</span>
-          </div>
+          <div style={{ width: "100%", height: "100%", background: `hsl(38,${22 - (num % 3) * 4}%,${83 - (num % 4) * 3}%)` }} />
         )}
-
-        {/* Number badge */}
         <div style={{
-          position:"absolute", top:7, left:7,
-          background:"rgba(255,255,255,0.92)",
-          borderRadius:20, padding:"2px 8px",
-          fontSize:12, fontWeight:700, color:"#2C2B28",
-          backdropFilter:"blur(4px)",
-          lineHeight:1.4,
-        }}>{NUMS[idx]}</div>
-
-        {/* Price tag */}
-        {showBudget && (
-          <div style={{
-            position:"absolute", top:7, right:7,
-            background:"rgba(250,238,218,0.95)",
-            border:"1px solid #C8A96E", borderRadius:7,
-            padding:"2px 8px", fontSize:11, fontWeight:700, color:"#633806",
-          }}>${item.price.toLocaleString()}</div>
-        )}
-
-        {/* Name gradient overlay — always show */}
-        <div style={{
-          position:"absolute", bottom:0, left:0, right:0,
-          background:"linear-gradient(transparent, rgba(0,0,0,0.62))",
-          padding:"28px 8px 7px",
-        }}>
-          <div style={{fontSize:11,fontWeight:600,color:"#fff",lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{item.shop}</div>
-        </div>
+          position: "absolute", top: 6, left: 6,
+          background: "rgba(255,255,255,0.9)", borderRadius: 20,
+          padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#2C2B28",
+        }}>{NUMS[num] || num + 1}</div>
       </div>
     </div>
   );
 }
+
+// Straight dashed line from a cell's outer edge out to its label in the side margin.
+// Drawn in an SVG whose viewBox aspect matches the canvas's real aspect ratio (see `aspect`
+// prop), so a diagonal line renders at its true angle instead of being stretched.
+function LeaderLines({ leftLabels, rightLabels, aspect }) {
+  const lines = [...leftLabels.map(c => ({ ...c, side: "left" })), ...rightLabels.map(c => ({ ...c, side: "right" }))];
+  return (
+    <svg viewBox={`0 0 100 ${100 * aspect}`} preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+      {lines.map(c => {
+        const edgeX = c.side === "left" ? c.x : c.x + c.w;
+        const edgeY = (c.y + c.h / 2) * aspect;
+        const labelX = c.side === "left" ? GRID_X0 - 6 : GRID_X1 + 6;
+        const labelY = c.labelY * aspect;
+        return (
+          <line key={c.item.id} x1={labelX} y1={labelY} x2={edgeX} y2={edgeY} stroke="#888780" strokeWidth={0.15} strokeDasharray="0.8,0.9" />
+        );
+      })}
+    </svg>
+  );
+}
+
+function SideLabel({ cell, side, showInfo, showBudget }) {
+  const { item, num, labelY } = cell;
+  const style = side === "left"
+    ? { left: 0, width: `${GRID_X0 - 6}%`, textAlign: "right" }
+    : { left: `${GRID_X1 + 6}%`, width: `${100 - GRID_X1 - 6}%`, textAlign: "left" };
+  return (
+    <div style={{ position: "absolute", top: `${labelY}%`, transform: "translateY(-50%)", ...style }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2C2B28", lineHeight: 1.3 }}>
+        {NUMS[num] || num + 1} {item.name}
+      </div>
+      {showInfo && <div style={{ fontSize: 10, color: "#999", marginTop: 1 }}>{item.shop}</div>}
+      {showBudget && <div style={{ fontSize: 10, fontWeight: 600, color: "#A87A2E", marginTop: 1 }}>${item.price.toLocaleString()}</div>}
+    </div>
+  );
+}
+
+function RoomPalette({ items }) {
+  const tags = [];
+  items.forEach(item => (item.colourTags || []).forEach(c => { if (!tags.includes(c)) tags.push(c); }));
+  if (tags.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#AAA", marginBottom: 6 }}>Room palette</div>
+      <div style={{ display: "flex", gap: 14 }}>
+        {tags.map(c => {
+          const bg = COLOUR_HEX[c] || "#CCC";
+          const isGradient = bg.startsWith("linear");
+          return (
+            <div key={c} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 8,
+                background: isGradient ? undefined : bg,
+                backgroundImage: isGradient ? bg : undefined,
+                border: "1px solid rgba(0,0,0,0.12)",
+              }} />
+              <span style={{ fontSize: 10, color: "#888" }}>{c}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const CANVAS_PADDING_BOTTOM = 58; // % — defines the canvas aspect ratio (height = width * this / 100)
 
 export default function MoodboardCollage({ sections, roomLabel, showInfo, showBudget }) {
   // Flatten ALL items from all sections into one array for single canvas
@@ -140,7 +216,7 @@ export default function MoodboardCollage({ sections, roomLabel, showInfo, showBu
 
   if (allItems.length === 0) return null;
 
-  const layout = getLayout(allItems.length);
+  const { cells, leftLabels, rightLabels } = computeLayout(allItems);
   const totalSpent = allItems.reduce((s,i)=>s+i.price,0);
 
   // Group for info panel
@@ -148,33 +224,27 @@ export default function MoodboardCollage({ sections, roomLabel, showInfo, showBu
 
   return (
     <div>
-      {/* Single canvas — all items together */}
+      <RoomPalette items={allItems} />
+
+      {/* Single canvas — all items together, mosaic grid + side labels */}
       <div style={{
         position:"relative",
         width:"100%",
-        paddingBottom: allItems.length<=2?"50%":allItems.length<=4?"62%":"75%",
+        paddingBottom: `${CANVAS_PADDING_BOTTOM}%`,
         background:"#F5F1EC",
         borderRadius:18,
         border:"1px solid #E0DAD0",
         overflow:"hidden",
       }}>
-        <div style={{position:"absolute",inset:"8px"}}>
-          {allItems.slice(0,8).map((item,idx)=>(
-            <CollageCard
-              key={item.id}
-              item={item}
-              layout={layout[idx]}
-              idx={idx}
-              showBudget={showBudget}
-              showInfo={showInfo}
-            />
-          ))}
-        </div>
+        <LeaderLines leftLabels={leftLabels} rightLabels={rightLabels} aspect={CANVAS_PADDING_BOTTOM / 100} />
+        {leftLabels.map(cell => <SideLabel key={cell.item.id} cell={cell} side="left" showInfo={showInfo} showBudget={showBudget} />)}
+        {rightLabels.map(cell => <SideLabel key={cell.item.id} cell={cell} side="right" showInfo={showInfo} showBudget={showBudget} />)}
+        {cells.map(cell => <CollagePhoto key={cell.item.id} cell={cell} showBudget={showBudget} />)}
 
-        {/* Room label watermark */}
+        {/* Room label watermark — bottom-centre, clear of the side label columns */}
         <div style={{
-          position:"absolute", bottom:12, right:16,
-          fontSize:11, fontWeight:600, letterSpacing:"0.1em",
+          position:"absolute", bottom:6, left:"50%", transform:"translateX(-50%)",
+          fontSize:10, fontWeight:600, letterSpacing:"0.1em",
           textTransform:"uppercase", color:"rgba(0,0,0,0.18)",
         }}>{roomLabel}</div>
       </div>

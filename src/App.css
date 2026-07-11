@@ -219,7 +219,7 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F7F4EF; col
 
 /* Sections */
 .pd-sections { display:flex; flex-direction:column; gap:10px; overflow-y:auto; }
-.section-drop-zone { background:#fff; border:1.5px dashed #D8D0C4; border-radius:10px; padding:12px; transition:border-color 0.15s,background 0.15s; min-height:90px; }
+.section-drop-zone { background:#fff; border:1.5px dashed #D8D0C4; border-radius:10px; padding:12px; padding-bottom:16px; transition:border-color 0.15s,background 0.15s; min-height:90px; flex-shrink:0; }
 .section-drop-zone.drag-over { border-color:#C8A96E; background:#FEFAF4; }
 .sdz-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
 .sdz-name { font-size:13px; font-weight:600; flex:1; }
