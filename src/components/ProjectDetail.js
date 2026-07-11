@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { furniture, VIBES } from "../data/furniture";
+import { getCustomFurniture } from "../data/customFurniture";
 import { ROOM_TYPES, ROOM_SECTIONS, SECTION_CATEGORY_MAP } from "../data/projects";
 import MoodboardCollage from "./MoodboardCollage";
 
@@ -83,14 +84,15 @@ export default function ProjectDetail({ project, onUpdate, onBack }) {
     updateSections(updated);
   }
 
+  const allFurniture = useMemo(() => [...furniture, ...getCustomFurniture()], []);
   const addedIds = Object.values(allSections).flat().map(i=>i.id);
-  const filtered = useMemo(() => furniture.filter(f => {
+  const filtered = useMemo(() => allFurniture.filter(f => {
     const q = search.toLowerCase();
-    const matchSearch = !q || f.name.toLowerCase().includes(q) || f.shop.toLowerCase().includes(q) || f.description.toLowerCase().includes(q);
+    const matchSearch = !q || f.name.toLowerCase().includes(q) || f.shop.toLowerCase().includes(q) || (f.description||"").toLowerCase().includes(q);
     const matchVibe = vibeFilter==="All" || (vibeFilter==="Match project" ? project.vibes.some(v=>f.vibes.includes(v)) : f.vibes.includes(vibeFilter));
     const matchCat = catFilter==="All" || f.category===catFilter;
     return matchSearch && matchVibe && matchCat && !addedIds.includes(f.id);
-  }), [search, vibeFilter, catFilter, addedIds, project.vibes]);
+  }), [allFurniture, search, vibeFilter, catFilter, addedIds, project.vibes]);
 
   return (
     <div className="pd-wrap">

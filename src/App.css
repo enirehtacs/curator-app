@@ -24,7 +24,10 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F7F4EF; col
 .db-search::placeholder { color: #AAA; }
 .db-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .db-filters select { border: 1px solid #E0DAD0; border-radius: 7px; padding: 6px 10px; font-size: 12px; background: #F7F4EF; color: #2C2B28; outline: none; cursor: pointer; }
+.db-size-filter { display: flex; align-items: center; gap: 6px; border: 1px solid #E0DAD0; border-radius: 7px; padding: 4px 10px; background: #F7F4EF; font-size: 11px; color: #888; }
+.db-size-filter input { width: 70px; border: none; background: transparent; outline: none; font-size: 12px; color: #2C2B28; }
 .db-count { font-size: 12px; color: #888; white-space: nowrap; margin-left: auto; }
+.custom-badge { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: #E8D6F7; color: #5A1A8B; white-space: nowrap; }
 
 .db-table-wrap { background: #fff; border: 1px solid #E0DAD0; border-radius: 10px; overflow: auto; }
 .db-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -59,6 +62,8 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F7F4EF; col
 .drawer-quality { font-size: 12px; color: #888; }
 .drawer-link { font-size: 12px; color: #C8A96E; text-decoration: none; font-weight: 500; }
 .drawer-link:hover { text-decoration: underline; }
+.drawer-delete-btn { border: 1px solid #F0C0C0; background: transparent; color: #B02020; border-radius: 7px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.drawer-delete-btn:hover { background: #FFF0F0; }
 
 /* ── MOODBOARD ────────────────────────────────────────────── */
 .mb-wrap { display: flex; flex-direction: column; gap: 16px; }

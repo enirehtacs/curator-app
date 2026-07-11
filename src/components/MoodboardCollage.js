@@ -1,118 +1,96 @@
 import { useState } from "react";
 import { COLOUR_HEX } from "../data/colours";
+import { estimateApparentSize } from "../data/dimensions";
 
 const NUMS = ["①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩"];
 
-function sizeClass(item) {
-  const cat = item.category;
-  const sub = (item.subtype || "").toLowerCase();
-  if (cat === "Sofa" || cat === "Bed") return "anchor";
-  if (cat === "Table" && /dining|coffee|console/.test(sub)) return "anchor";
-  if (cat === "Storage" || cat === "Table" || cat === "Chair" || cat === "Outdoor" || cat === "Kitchen/Dining") return "medium";
-  if (cat === "Lighting") return "small";
-  return "tiny"; // Accent, Ottoman, etc.
-}
-const RANK = { anchor: 0, medium: 1, small: 2, tiny: 3 };
-
-// Bento-style mosaic templates — cells tile edge-to-edge (0-100 local box), biggest slot first.
-// The 9-slot template is modelled on a classic gallery-wall collage layout.
-const GRID_TEMPLATES = {
-  1: [{ x: 8, y: 4, w: 84, h: 92 }],
-  2: [
-    { x: 0, y: 0, w: 48, h: 100 },
-    { x: 52, y: 0, w: 48, h: 100 },
-  ],
-  3: [
-    { x: 0, y: 0, w: 48, h: 48 },
-    { x: 52, y: 0, w: 48, h: 48 },
-    { x: 0, y: 52, w: 100, h: 48 },
-  ],
-  4: [
-    { x: 0, y: 0, w: 48, h: 48 },
-    { x: 52, y: 0, w: 48, h: 48 },
-    { x: 0, y: 52, w: 48, h: 48 },
-    { x: 52, y: 52, w: 48, h: 48 },
-  ],
-  5: [
-    { x: 0, y: 0, w: 48, h: 64 },
-    { x: 52, y: 0, w: 29, h: 64 },
-    { x: 83, y: 0, w: 17, h: 64 },
-    { x: 0, y: 66, w: 31, h: 34 },
-    { x: 33, y: 66, w: 67, h: 34 },
-  ],
-  6: [
-    { x: 0, y: 0, w: 31, h: 48 },
-    { x: 33, y: 0, w: 31, h: 48 },
-    { x: 66, y: 0, w: 34, h: 48 },
-    { x: 0, y: 52, w: 31, h: 48 },
-    { x: 33, y: 52, w: 31, h: 48 },
-    { x: 66, y: 52, w: 34, h: 48 },
-  ],
-  7: [
-    { x: 0, y: 0, w: 31, h: 48 },
-    { x: 33, y: 0, w: 31, h: 48 },
-    { x: 66, y: 0, w: 34, h: 48 },
-    { x: 0, y: 52, w: 22, h: 48 },
-    { x: 24, y: 52, w: 22, h: 48 },
-    { x: 48, y: 52, w: 22, h: 48 },
-    { x: 72, y: 52, w: 28, h: 48 },
-  ],
-  8: [
-    { x: 0, y: 0, w: 22, h: 48 },
-    { x: 24, y: 0, w: 22, h: 48 },
-    { x: 48, y: 0, w: 22, h: 48 },
-    { x: 72, y: 0, w: 28, h: 48 },
-    { x: 0, y: 52, w: 22, h: 48 },
-    { x: 24, y: 52, w: 22, h: 48 },
-    { x: 48, y: 52, w: 22, h: 48 },
-    { x: 72, y: 52, w: 28, h: 48 },
-  ],
-  9: [
-    { x: 63, y: 0, w: 34, h: 31 },   // top-right
-    { x: 16, y: 12, w: 44, h: 19 },  // top-left wide
-    { x: 9, y: 32, w: 20, h: 25 },   // mid-left
-    { x: 31, y: 32, w: 44, h: 38 },  // centre — biggest, the anchor slot
-    { x: 78, y: 32, w: 19, h: 21 },  // mid-right upper
-    { x: 78, y: 54, w: 22, h: 16 },  // mid-right lower
-    { x: 0, y: 58, w: 29, h: 14 },   // small band, lower-left
-    { x: 16, y: 72, w: 33, h: 28 },  // bottom-left
-    { x: 50, y: 72, w: 43, h: 28 },  // bottom-right
-  ],
-};
-
 // Canvas zones — centre grid box flanked by left/right margins reserved for side labels
-const GRID_X0 = 16, GRID_X1 = 84;
+const GRID_X0 = 19, GRID_X1 = 81;
 const GRID_Y0 = 4, GRID_Y1 = 96;
 const CELL_GAP = 0.8; // % inset applied to each side of every cell, creating a thin gutter
+const LEFT_LINE_X = 13, RIGHT_LINE_X = 87; // where leader lines start/end inside each margin
 
-// Assign items to grid slots (biggest slot goes to the highest-ranked/"anchor" item),
-// then bucket each into a left/right side-label column based on its slot's position.
+// Three sub-columns within the grid box: a centred "anchor" column for the single biggest
+// item, flanked by a left and right column that each stack their items vertically.
+// Stacking (rather than a multi-column grid) guarantees every item in a column sits at a
+// different y — which matters because leader lines are strictly horizontal, so two items
+// on the same side can never share a y without their labels colliding.
+const COL_LEFT = { x0: 0, x1: 29 };
+const COL_CENTER = { x0: 31, x1: 69 };
+const COL_RIGHT = { x0: 71, x1: 100 };
+const MIN_STACK_H = 16; // % floor per stacked cell so small accents don't shrink to nothing
+
+function toCanvas(localX0, localX1, localY0, localY1) {
+  const gw = GRID_X1 - GRID_X0, gh = GRID_Y1 - GRID_Y0;
+  return {
+    x: GRID_X0 + (localX0 / 100) * gw,
+    w: ((localX1 - localX0) / 100) * gw,
+    y: GRID_Y0 + (localY0 / 100) * gh,
+    h: ((localY1 - localY0) / 100) * gh,
+  };
+}
+
+// Stack a column's items top-to-bottom with height proportional to each item's real-world
+// size (estimateApparentSize), clamped to a minimum so nothing becomes illegibly thin.
+function stackColumn(list, col, bucket) {
+  if (list.length === 0) return [];
+  const sizes = list.map(m => m.size);
+  const total = sizes.reduce((a, b) => a + b, 0) || 1;
+  let heights = sizes.map(s => Math.max(MIN_STACK_H, (s / total) * 100));
+  const sumH = heights.reduce((a, b) => a + b, 0);
+  heights = heights.map(h => (h / sumH) * 100); // renormalise to fill exactly 100% of the column
+
+  let localY = 0;
+  return list.map((m, i) => {
+    const h = heights[i];
+    const { x, w, y, h: ch } = toCanvas(col.x0, col.x1, localY, localY + h);
+    localY += h;
+    return { item: m.item, num: m.num, x, y, w, h: ch, bucket, labelY: y + ch / 2 };
+  });
+}
+
+// Assign items by real-world size (via estimateApparentSize, parsed from `dimensions`):
+// the single biggest item becomes a centred anchor cell, the rest split between a left and
+// right stack (snake-distributed so both sides carry a similar amount of visual weight).
 function computeLayout(items) {
-  const shown = items.slice(0, 9);
+  const shown = items.slice(0, 10);
   const n = shown.length;
   if (n === 0) return { cells: [], leftLabels: [], rightLabels: [] };
-  const template = GRID_TEMPLATES[n];
 
-  const withMeta = shown.map((item, num) => ({ item, num, cls: sizeClass(item) }));
-  const bySize = [...withMeta].sort((a, b) => RANK[a.cls] - RANK[b.cls]);
-  const slotsByArea = template.map((slot, i) => ({ slot, i })).sort((a, b) => (b.slot.w * b.slot.h) - (a.slot.w * a.slot.h));
+  const withMeta = shown.map((item, num) => ({ item, num, size: estimateApparentSize(item) }));
+  const bySize = [...withMeta].sort((a, b) => b.size - a.size);
 
-  const cells = bySize.map((m, i) => {
-    const slot = slotsByArea[i].slot;
-    const x = GRID_X0 + (slot.x / 100) * (GRID_X1 - GRID_X0);
-    const y = GRID_Y0 + (slot.y / 100) * (GRID_Y1 - GRID_Y0);
-    const w = (slot.w / 100) * (GRID_X1 - GRID_X0);
-    const h = (slot.h / 100) * (GRID_Y1 - GRID_Y0);
-    const bucket = slot.x + slot.w / 2 < 50 ? "left" : "right";
-    return { item: m.item, num: m.num, x, y, w, h, bucket };
-  });
+  if (n === 1) {
+    const { x, y, w, h } = toCanvas(0, 100, 0, 100);
+    const cell = { item: bySize[0].item, num: bySize[0].num, x, y, w, h, bucket: "right", labelY: y + h / 2 };
+    return { cells: [cell], leftLabels: [], rightLabels: [cell] };
+  }
 
-  const stack = (bucket) => {
-    const list = cells.filter(c => c.bucket === bucket).sort((a, b) => a.y - b.y);
-    return list.map((c, i) => ({ ...c, labelY: list.length === 1 ? 50 : 6 + i * (88 / (list.length - 1)) }));
-  };
+  if (n === 2) {
+    const leftHalf = toCanvas(0, 49, 0, 100), rightHalf = toCanvas(51, 100, 0, 100);
+    const cells = [
+      { item: bySize[0].item, num: bySize[0].num, ...leftHalf, bucket: "left", labelY: leftHalf.y + leftHalf.h / 2 },
+      { item: bySize[1].item, num: bySize[1].num, ...rightHalf, bucket: "right", labelY: rightHalf.y + rightHalf.h / 2 },
+    ];
+    return { cells, leftLabels: [cells[0]], rightLabels: [cells[1]] };
+  }
 
-  return { cells, leftLabels: stack("left"), rightLabels: stack("right") };
+  const anchor = bySize[0];
+  const rest = bySize.slice(1);
+  const left = [], right = [];
+  rest.forEach((m, i) => (i % 2 === 0 ? left : right).push(m));
+
+  const { x, y, w, h } = toCanvas(COL_CENTER.x0, COL_CENTER.x1, 0, 100);
+  const anchorBucket = left.length <= right.length ? "left" : "right";
+  const anchorCell = { item: anchor.item, num: anchor.num, x, y, w, h, bucket: anchorBucket, labelY: y + h / 2 };
+
+  const leftCells = stackColumn(left, COL_LEFT, "left");
+  const rightCells = stackColumn(right, COL_RIGHT, "right");
+
+  const cells = [anchorCell, ...leftCells, ...rightCells];
+  const leftLabels = cells.filter(c => c.bucket === "left");
+  const rightLabels = cells.filter(c => c.bucket === "right");
+  return { cells, leftLabels, rightLabels };
 }
 
 function CollagePhoto({ cell, showBudget }) {
@@ -142,31 +120,27 @@ function CollagePhoto({ cell, showBudget }) {
   );
 }
 
-// Straight dashed line from a cell's outer edge out to its label in the side margin.
-// Drawn in an SVG whose viewBox aspect matches the canvas's real aspect ratio (see `aspect`
-// prop), so a diagonal line renders at its true angle instead of being stretched.
-function LeaderLines({ leftLabels, rightLabels, aspect }) {
-  const lines = [...leftLabels.map(c => ({ ...c, side: "left" })), ...rightLabels.map(c => ({ ...c, side: "right" }))];
+// Perfectly horizontal dashed line from a cell's outer edge straight out to the margin —
+// no diagonals. Since both ends sit at the same y (the cell's own vertical centre), a plain
+// absolutely-positioned div with a top border does the job without any aspect-ratio maths.
+function LeaderLine({ cell, side }) {
+  const edgeX = side === "left" ? cell.x : cell.x + cell.w;
+  const lineX = side === "left" ? LEFT_LINE_X : RIGHT_LINE_X;
+  const left = Math.min(edgeX, lineX);
+  const width = Math.max(edgeX, lineX) - left;
   return (
-    <svg viewBox={`0 0 100 ${100 * aspect}`} preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-      {lines.map(c => {
-        const edgeX = c.side === "left" ? c.x : c.x + c.w;
-        const edgeY = (c.y + c.h / 2) * aspect;
-        const labelX = c.side === "left" ? GRID_X0 - 6 : GRID_X1 + 6;
-        const labelY = c.labelY * aspect;
-        return (
-          <line key={c.item.id} x1={labelX} y1={labelY} x2={edgeX} y2={edgeY} stroke="#888780" strokeWidth={0.15} strokeDasharray="0.8,0.9" />
-        );
-      })}
-    </svg>
+    <div style={{
+      position: "absolute", top: `${cell.labelY}%`, left: `${left}%`, width: `${width}%`,
+      height: 0, borderTop: "1px dashed #888780",
+    }} />
   );
 }
 
 function SideLabel({ cell, side, showInfo, showBudget }) {
   const { item, num, labelY } = cell;
   const style = side === "left"
-    ? { left: 0, width: `${GRID_X0 - 6}%`, textAlign: "right" }
-    : { left: `${GRID_X1 + 6}%`, width: `${100 - GRID_X1 - 6}%`, textAlign: "left" };
+    ? { left: "2%", width: `${LEFT_LINE_X - 4}%`, textAlign: "left" }
+    : { left: `${RIGHT_LINE_X + 2}%`, width: `${98 - RIGHT_LINE_X - 2}%`, textAlign: "right" };
   return (
     <div style={{ position: "absolute", top: `${labelY}%`, transform: "translateY(-50%)", ...style }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: "#2C2B28", lineHeight: 1.3 }}>
@@ -236,7 +210,8 @@ export default function MoodboardCollage({ sections, roomLabel, showInfo, showBu
         border:"1px solid #E0DAD0",
         overflow:"hidden",
       }}>
-        <LeaderLines leftLabels={leftLabels} rightLabels={rightLabels} aspect={CANVAS_PADDING_BOTTOM / 100} />
+        {leftLabels.map(cell => <LeaderLine key={"line-"+cell.item.id} cell={cell} side="left" />)}
+        {rightLabels.map(cell => <LeaderLine key={"line-"+cell.item.id} cell={cell} side="right" />)}
         {leftLabels.map(cell => <SideLabel key={cell.item.id} cell={cell} side="left" showInfo={showInfo} showBudget={showBudget} />)}
         {rightLabels.map(cell => <SideLabel key={cell.item.id} cell={cell} side="right" showInfo={showInfo} showBudget={showBudget} />)}
         {cells.map(cell => <CollagePhoto key={cell.item.id} cell={cell} showBudget={showBudget} />)}
