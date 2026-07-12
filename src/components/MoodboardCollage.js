@@ -77,15 +77,29 @@ function computeLayout(items) {
 
   const anchor = bySize[0];
   const rest = bySize.slice(1);
-  const left = [], right = [];
+  let left = [], right = [];
   rest.forEach((m, i) => (i % 2 === 0 ? left : right).push(m));
-
-  const { x, y, w, h } = toCanvas(COL_CENTER.x0, COL_CENTER.x1, 0, 100);
-  const anchorBucket = left.length <= right.length ? "left" : "right";
-  const anchorCell = { item: anchor.item, num: anchor.num, x, y, w, h, bucket: anchorBucket, labelY: y + h / 2 };
+  // A column holding exactly one item is centred at y=50 — the same spot as the anchor's own
+  // horizontal line — so a lone item on either side is a guaranteed collision. Merge it into
+  // the other column instead, leaving this side clear for the anchor to use safely.
+  if (left.length === 1) { right = [...right, ...left].sort((a, b) => b.size - a.size); left = []; }
+  else if (right.length === 1) { left = [...left, ...right].sort((a, b) => b.size - a.size); right = []; }
 
   const leftCells = stackColumn(left, COL_LEFT, "left");
   const rightCells = stackColumn(right, COL_RIGHT, "right");
+
+  const { x, y, w, h } = toCanvas(COL_CENTER.x0, COL_CENTER.x1, 0, 100);
+  const anchorY = y + h / 2; // always the vertical mid-point (50%) since the anchor spans the full column height
+  // Pick whichever side keeps every label clear of the anchor's own — a stacked item landing
+  // too close to y=50 would collide with the anchor's label since leader lines are horizontal
+  // (no diagonal nudge is possible to dodge a near-miss).
+  const MIN_LABEL_GAP = 12; // % of canvas height
+  const closestGap = (cells) => cells.length ? Math.min(...cells.map(c => Math.abs(c.labelY - anchorY))) : Infinity;
+  const leftGap = closestGap(leftCells), rightGap = closestGap(rightCells);
+  let anchorBucket;
+  if (leftGap >= MIN_LABEL_GAP && rightGap >= MIN_LABEL_GAP) anchorBucket = right.length <= left.length ? "right" : "left";
+  else anchorBucket = rightGap > leftGap ? "right" : "left";
+  const anchorCell = { item: anchor.item, num: anchor.num, x, y, w, h, bucket: anchorBucket, labelY: anchorY };
 
   const cells = [anchorCell, ...leftCells, ...rightCells];
   const leftLabels = cells.filter(c => c.bucket === "left");
@@ -98,7 +112,7 @@ function CollagePhoto({ cell, showBudget }) {
   const [err, setErr] = useState(false);
   const g = CELL_GAP;
   return (
-    <div style={{ position: "absolute", left: `${x + g}%`, top: `${y + g}%`, width: `${w - 2 * g}%`, height: `${h - 2 * g}%` }}>
+    <div style={{ position: "absolute", zIndex: 1, left: `${x + g}%`, top: `${y + g}%`, width: `${w - 2 * g}%`, height: `${h - 2 * g}%` }}>
       <div style={{ width: "100%", height: "100%", borderRadius: 7, overflow: "hidden", position: "relative", background: "#EDE8E0" }}>
         {item.photo && !err ? (
           <img
@@ -130,7 +144,7 @@ function LeaderLine({ cell, side }) {
   const width = Math.max(edgeX, lineX) - left;
   return (
     <div style={{
-      position: "absolute", top: `${cell.labelY}%`, left: `${left}%`, width: `${width}%`,
+      position: "absolute", zIndex: 2, top: `${cell.labelY}%`, left: `${left}%`, width: `${width}%`,
       height: 0, borderTop: "1px dashed #888780",
     }} />
   );
