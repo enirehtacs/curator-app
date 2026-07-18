@@ -1,3 +1,5 @@
+export const PROJECT_STATUS_OPTIONS = ["Planning", "In progress", "Completed"];
+
 export const ROOM_TYPES = [
   "Living Room","Bedroom","Master Bedroom","Dining Room",
   "Kitchen","Home Office","Bathroom","Outdoor / Patio","Kids Room"

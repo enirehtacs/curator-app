@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { furniture, VIBES } from "../data/furniture";
+import { VIBES } from "../data/furniture";
 import { getCustomFurniture } from "../data/customFurniture";
 import { ROOM_TYPES, ROOM_SECTIONS, SECTION_CATEGORY_MAP } from "../data/projects";
 import MoodboardCollage from "./MoodboardCollage";
@@ -84,7 +84,7 @@ export default function ProjectDetail({ project, onUpdate, onBack }) {
     updateSections(updated);
   }
 
-  const allFurniture = useMemo(() => [...furniture, ...getCustomFurniture()], []);
+  const allFurniture = useMemo(() => getCustomFurniture(), []);
   const addedIds = Object.values(allSections).flat().map(i=>i.id);
   const filtered = useMemo(() => allFurniture.filter(f => {
     const q = search.toLowerCase();

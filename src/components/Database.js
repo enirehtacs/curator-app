@@ -2,42 +2,61 @@ import { useState, useMemo } from "react";
 import { furniture, VIBES, CATEGORIES, SOURCE_TYPES, COLOUR_OPTIONS } from "../data/furniture";
 import { ROOM_TYPES } from "../data/projects";
 import { COLOUR_HEX } from "../data/colours";
-import { getCustomFurniture, addCustomFurniture, deleteCustomFurniture } from "../data/customFurniture";
+import { getCustomFurniture, addFurnitureItem, saveFurnitureItem, deleteFurnitureItem } from "../data/customFurniture";
 import { parseDimensionsMm } from "../data/dimensions";
 
 const TIER_STYLE = { Budget:{background:"#D6F0E2",color:"#0F5C30"}, Mid:{background:"#FFF3CC",color:"#7A5A00"}, Premium:{background:"#FFD6D6",color:"#8B1A1A"} };
 const AVAIL_STYLE = { "In stock":{background:"#D6F0E2",color:"#0F5C30"}, "Pre-order":{background:"#FFF3CC",color:"#7A5A00"}, "Coming soon":{background:"#FFE8CC",color:"#8B4A00"}, "Discontinued":{background:"#FFD6D6",color:"#8B1A1A"} };
 const CAT_STYLE = { "Sofa":{background:"#FFD6E0",color:"#8B1A2E"}, "Chair":{background:"#FFE8CC",color:"#8B4A00"}, "Ottoman":{background:"#FFF3CC",color:"#7A5A00"}, "Table":{background:"#D6F0E2",color:"#1A5C38"}, "Storage":{background:"#D6E8F7",color:"#1A3F6E"}, "Bed":{background:"#E8D6F7",color:"#5A1A8B"}, "Lighting":{background:"#FFF8CC",color:"#7A6800"}, "Accent":{background:"#F7D6F0",color:"#6E1A5A"}, "Outdoor":{background:"#D6F7D6",color:"#1A6E1A"}, "Kitchen/Dining":{background:"#F7E8D6",color:"#6E4A1A"} };
-const ID_PREFIX = { Sofa:"SF", Chair:"CH", Ottoman:"OT", Table:"TB", Storage:"ST", Bed:"BD", Lighting:"LT", Accent:"AC", Outdoor:"OD", "Kitchen/Dining":"KT" };
+const ID_GUIDE = "SF=Sofa, CH=Chair, OT=Ottoman, TB=Table, ST=Storage, BD=Bed, LT=Lighting, AC=Accent, OD=Outdoor, KT=Kitchen";
+const LEAD_TIME_OPTIONS = ["In stock", "2–3 weeks", "3–4 weeks", "8–10 weeks", "Made to order"];
 
-// Common materials, curated from what real SG furniture shops list
-const MATERIALS_OPTIONS = [
-  "Fabric","Leather","Faux Leather","Velvet","Linen","Cotton","Bouclé",
-  "Wood","Engineered Wood","Solid Wood","Rattan","Wicker",
-  "Metal","Brass","Marble","Glass","Ceramic","Stoneware","Concrete","Stone",
-  "Polyester","Polyethylene","Polycarbonate","ABS Plastic","Foam","Corduroy","Giclée Print",
-];
+const AUTOFILL_SYSTEM_PROMPT = "You are a furniture product data extractor. Given a product URL, extract product information and return ONLY a valid JSON object with these exact fields: name, price (number in SGD, convert if needed), description (one sentence max), materials, colours, dimensions, shop (store name), sku (product code if visible). If a field is not found return null. Return nothing except the JSON.";
+const API_KEY_STORAGE = "curator-anthropic-api-key";
 
-// Subtypes per category, modelled on how HipVan/Castlery/Space Furniture structure their nav
-const SUBTYPES_BY_CATEGORY = {
-  Sofa: ["1-Seater","2-Seater","3-Seater","4-Seater","L-Shape","Sectional","Sofa Bed","Modular","Loveseat","Recliner"],
-  Chair: ["Dining","Accent","Armchair","Office","Recliner","Rocking","Stool","Bench"],
-  Ottoman: ["Bean Bag","Pouffe","Footstool","Storage Ottoman"],
-  Table: ["Coffee","Side","Console","Dining","Bar Table","Desk","Nesting","Extendable"],
-  Storage: ["Shelf","TV Console","Cabinet","Wardrobe","Bookcase","Sideboard","Drawer Chest","Shoe Cabinet"],
-  Bed: ["Bed Frame","Storage Bed","Sofa Bed","Bunk Bed","Daybed","Headboard"],
-  Lighting: ["Table Lamp","Floor Lamp","Pendant","Ceiling Light","Wall Light","Desk Lamp","String Lights"],
-  Accent: ["Vase","Cushion","Rug","Tray","Clock","Art Print","Mirror","Throw Blanket","Candle Holder","Plant Pot","Sculpture / Decor"],
-  Outdoor: ["Lounger","Outdoor Sofa","Outdoor Chair","Outdoor Table","Umbrella","Planter"],
-  "Kitchen/Dining": ["Bar Stool","Dining Set","Kitchen Cart","Tableware","Cutlery","Kitchen Storage"],
-};
+function getStoredApiKey() {
+  return localStorage.getItem(API_KEY_STORAGE) || "";
+}
 
-function buildDimensionsString(l, w, h) {
-  const parts = [];
-  if (l) parts.push(`L${l}`);
-  if (w) parts.push(`W${w}`);
-  if (h) parts.push(`H${h}`);
-  return parts.length ? parts.join(" ") + "mm" : "";
+function promptForApiKey() {
+  const key = window.prompt(
+    "Paste your Anthropic API key to enable Autofill.\n\nThis is stored only in your browser (localStorage) — it's never sent anywhere but Anthropic's API, and never committed to this app's code."
+  );
+  if (key && key.trim()) {
+    localStorage.setItem(API_KEY_STORAGE, key.trim());
+    return key.trim();
+  }
+  return "";
+}
+
+async function callAutofill(url) {
+  const apiKey = getStoredApiKey() || promptForApiKey();
+  if (!apiKey) return { ok: false };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        system: AUTOFILL_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: `Extract product data from this URL: ${url}` }],
+      }),
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    const text = data?.content?.[0]?.text ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return { ok: false };
+    return { ok: true, data: JSON.parse(match[0]) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function getTier(p){ return p<=500?"Budget":p<=2000?"Mid":"Premium"; }
@@ -59,10 +78,11 @@ function ColourDot({ colour, size=14 }) {
 }
 
 const EMPTY_FORM = {
-  name:"", category:CATEGORIES[0], subtype:"", rooms:[], vibes:[], shop:"", sourceType:SOURCE_TYPES[0],
-  url:"", sku:"", price:"", colourTags:[], description:"", materials:[], colours:"",
-  dimL:"", dimW:"", dimH:"",
-  quality:"", leadTime:"In stock", availability:"In stock", notes:"", photo:"",
+  url: "", id: "", name: "", category: CATEGORIES[0], subtype: "",
+  rooms: [], vibes: [], shop: "", sourceType: SOURCE_TYPES[0], sku: "",
+  price: "", supplierPrice: "", colourTags: [], description: "", materials: "",
+  colours: "", dimensions: "", quality: "", rating: 0,
+  leadTime: "In stock", availability: "In stock", notes: "", photo: "",
 };
 
 function MultiPick({ options, selected, onToggle }) {
@@ -75,81 +95,162 @@ function MultiPick({ options, selected, onToggle }) {
   );
 }
 
-// Dropdown backed by a curated option list, with a "+ Add new…" escape hatch that swaps in a free-text input
-function DropdownWithCustom({ options, value, onChange, addLabel, placeholder }) {
-  const [customMode, setCustomMode] = useState(value !== "" && !options.includes(value));
-  if (customMode) {
-    return (
-      <div style={{display:"flex",gap:6}}>
-        <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} autoFocus />
-        <button type="button" className="btn-ghost" style={{padding:"6px 10px",whiteSpace:"nowrap"}} onClick={()=>{setCustomMode(false);onChange("");}}>Use list</button>
-      </div>
-    );
-  }
+function ColourPick({ options, selected, onToggle }) {
   return (
-    <select value={options.includes(value)?value:""} onChange={e=>{
-      if (e.target.value === "__custom__") { setCustomMode(true); onChange(""); }
-      else onChange(e.target.value);
-    }}>
-      <option value="" disabled>Select…</option>
-      {options.map(o=><option key={o}>{o}</option>)}
-      <option value="__custom__">{addLabel || "+ Add new…"}</option>
-    </select>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+      {options.map(c => {
+        const isSelected = selected.includes(c);
+        return (
+          <button key={c} type="button" onClick={() => onToggle(c)} style={{
+            display: "flex", alignItems: "center", gap: 6, border: `1px solid ${isSelected ? "#2C2B28" : "#D8D0C4"}`,
+            background: isSelected ? "#2C2B28" : "#fff", color: isSelected ? "#fff" : "#2C2B28",
+            borderRadius: 20, padding: "4px 10px 4px 6px", cursor: "pointer", fontSize: 12,
+          }}>
+            <ColourDot colour={c} size={14} />{c}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function AddItemModal({ onClose, onSave, shopOptions }) {
-  const [form, setForm] = useState(EMPTY_FORM);
+function StarPicker({ value, onChange }) {
+  return (
+    <div className="star-picker">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button type="button" key={n} className={n <= value ? "filled" : ""} onClick={() => onChange(n === value ? 0 : n)}>★</button>
+      ))}
+    </div>
+  );
+}
+
+function AutofillButton({ url, onResult }) {
+  const [loading, setLoading] = useState(false);
+  const enabled = url.trim().length > 5 && !loading;
+
+  async function run() {
+    if (!enabled) return;
+    setLoading(true);
+    const result = await callAutofill(url.trim());
+    setLoading(false);
+    onResult(result);
+  }
+
+  return (
+    <button type="button" className={`autofill-btn ${enabled ? "enabled" : ""}`} onClick={run} disabled={!enabled}>
+      {loading ? <span className="autofill-spinner" /> : "✨"} Autofill
+    </button>
+  );
+}
+
+function PhotoPreview({ src }) {
+  const [ok, setOk] = useState(false);
+  if (!src) return null;
+  return (
+    <img key={src} src={src} alt="Preview" onLoad={() => setOk(true)} onError={() => setOk(false)}
+      style={{ display: ok ? "block" : "none", width: 110, height: 82, objectFit: "cover", borderRadius: 7, border: "1px solid #E0DAD0", marginTop: 6 }} />
+  );
+}
+
+function ItemFormModal({ item, onClose, onSave, onToast }) {
+  const isEdit = !!item;
+  const [form, setForm] = useState(item ? { ...EMPTY_FORM, ...item } : EMPTY_FORM);
   const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
   const setVal = (field) => (value) => setForm(f => ({ ...f, [field]: value }));
   const toggleIn = (field) => (value) => setForm(f => ({
     ...f, [field]: f[field].includes(value) ? f[field].filter(v=>v!==value) : [...f[field], value]
   }));
 
-  function submit() {
-    if (!form.name.trim() || !form.shop.trim() || !form.price) {
-      alert("Name, shop and price are required");
+  function handleAutofillResult(result) {
+    if (!result.ok) {
+      onToast({ type: "warn", message: "Could not autofill — please fill in manually" });
       return;
     }
-    const prefix = ID_PREFIX[form.category] || "XX";
-    const id = `${prefix}-CUSTOM-${Date.now().toString(36).toUpperCase()}`;
-    const { dimL, dimW, dimH, ...rest } = form;
+    const d = result.data;
+    setForm(f => ({
+      ...f,
+      name: d.name ?? f.name,
+      price: d.price != null ? String(d.price) : f.price,
+      description: d.description ?? f.description,
+      materials: d.materials ?? f.materials,
+      colours: d.colours ?? f.colours,
+      dimensions: d.dimensions ?? f.dimensions,
+      shop: d.shop ?? f.shop,
+      sku: d.sku ?? f.sku,
+    }));
+    onToast({ type: "success", message: "Fields filled — please review before saving" });
+  }
+
+  function handlePhotoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm(f => ({ ...f, photo: reader.result }));
+    reader.readAsDataURL(file);
+  }
+
+  function submit() {
+    if (!form.id.trim() || !form.name.trim() || !form.shop.trim() || !form.price) {
+      alert("Item ID, name, shop and price are required");
+      return;
+    }
+    if (!isEdit && getCustomFurniture().some(i => i.id === form.id.trim())) {
+      alert("An item with this ID already exists — please use a unique ID");
+      return;
+    }
     const item = {
-      ...rest,
-      id,
+      ...form,
+      id: form.id.trim(),
       price: Number(form.price) || 0,
-      materials: form.materials.join(", "),
-      dimensions: buildDimensionsString(dimL, dimW, dimH),
-      rating: 0,
-      custom: true,
+      supplierPrice: form.supplierPrice ? Number(form.supplierPrice) : null,
+      rating: Number(form.rating) || 0,
     };
-    onSave(item);
+    onSave(item, isEdit);
   }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:640}}>
         <div className="modal-header">
-          <div className="modal-title">Add a new item</div>
+          <div className="modal-title">{isEdit ? "Edit item" : "Add a new item"}</div>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
           <div className="form-field">
-            <label>Name</label>
-            <input value={form.name} onChange={set("name")} placeholder="e.g. Dawson 3-Seater Sofa" />
+            <label>Product URL</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input style={{ flex: 1 }} value={form.url} onChange={set("url")} placeholder="https://... (link to the individual product page)" />
+              <AutofillButton url={form.url} onResult={handleAutofillResult} />
+            </div>
           </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div className="form-field">
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                Item ID
+                <span className="id-guide-icon" title={ID_GUIDE}>ⓘ</span>
+              </label>
+              <input value={form.id} onChange={set("id")} placeholder="e.g. SF-3S-002" disabled={isEdit} />
+            </div>
+            <div className="form-field">
+              <label>Item name</label>
+              <input value={form.name} onChange={set("name")} placeholder="e.g. Dawson 3-Seater Sofa" />
+            </div>
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             <div className="form-field">
               <label>Category</label>
-              <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value,subtype:""}))}>
+              <select value={form.category} onChange={set("category")}>
                 {CATEGORIES.map(c=><option key={c}>{c}</option>)}
               </select>
             </div>
             <div className="form-field">
-              <label>Subtype</label>
-              <DropdownWithCustom key={form.category} options={SUBTYPES_BY_CATEGORY[form.category]||[]} value={form.subtype} onChange={setVal("subtype")} addLabel="+ Add new subtype…" placeholder="e.g. 3-Seater" />
+              <label>Sub-type</label>
+              <input value={form.subtype} onChange={set("subtype")} placeholder="e.g. 3-Seater, Floor Lamp, Coffee Table" />
             </div>
           </div>
+
           <div className="form-field">
             <label>Room types</label>
             <MultiPick options={ROOM_TYPES} selected={form.rooms} onToggle={toggleIn("rooms")} />
@@ -158,14 +259,11 @@ function AddItemModal({ onClose, onSave, shopOptions }) {
             <label>Vibes</label>
             <MultiPick options={VIBES} selected={form.vibes} onToggle={toggleIn("vibes")} />
           </div>
-          <div className="form-field">
-            <label>Colour tags</label>
-            <MultiPick options={COLOUR_OPTIONS} selected={form.colourTags} onToggle={toggleIn("colourTags")} />
-          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             <div className="form-field">
-              <label>Shop</label>
-              <DropdownWithCustom options={shopOptions} value={form.shop} onChange={setVal("shop")} addLabel="+ Add new shop…" placeholder="e.g. HipVan" />
+              <label>Shop / Supplier name</label>
+              <input value={form.shop} onChange={set("shop")} placeholder="e.g. HipVan" />
             </div>
             <div className="form-field">
               <label>Source type</label>
@@ -174,48 +272,66 @@ function AddItemModal({ onClose, onSave, shopOptions }) {
               </select>
             </div>
           </div>
-          <div className="form-field">
-            <label>Product URL</label>
-            <input value={form.url} onChange={set("url")} placeholder="https://... (link to the individual product page)" />
-          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             <div className="form-field">
-              <label>SKU</label>
+              <label>SKU / Product code</label>
               <input value={form.sku} onChange={set("sku")} />
             </div>
             <div className="form-field">
-              <label>Price (SGD)</label>
+              <label>Listed price (SGD)</label>
               <input type="number" value={form.price} onChange={set("price")} placeholder="0" />
             </div>
           </div>
+
+          <div className="form-field">
+            <label>Supplier price (SGD) — your negotiated rate</label>
+            <input type="number" value={form.supplierPrice} onChange={set("supplierPrice")} placeholder="Optional" />
+          </div>
+
+          <div className="form-field">
+            <label>Colour tags</label>
+            <ColourPick options={COLOUR_OPTIONS} selected={form.colourTags} onToggle={toggleIn("colourTags")} />
+          </div>
+
           <div className="form-field">
             <label>Description</label>
-            <textarea rows={2} value={form.description} onChange={set("description")} />
+            <textarea rows={2} value={form.description} onChange={set("description")} placeholder="1–2 sentences" />
           </div>
-          <div className="form-field">
-            <label>Materials</label>
-            <MultiPick options={MATERIALS_OPTIONS} selected={form.materials} onToggle={toggleIn("materials")} />
-          </div>
-          <div className="form-field">
-            <label>Colours</label>
-            <input value={form.colours} onChange={set("colours")} placeholder="e.g. Warm grey, Oatmeal" />
-          </div>
-          <div className="form-field">
-            <label>Dimensions (mm)</label>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-              <input type="number" min="0" value={form.dimL} onChange={set("dimL")} placeholder="L" />
-              <input type="number" min="0" value={form.dimW} onChange={set("dimW")} placeholder="W" />
-              <input type="number" min="0" value={form.dimH} onChange={set("dimH")} placeholder="H" />
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div className="form-field">
+              <label>Materials</label>
+              <input value={form.materials} onChange={set("materials")} placeholder="e.g. Fabric, Wood" />
+            </div>
+            <div className="form-field">
+              <label>Colours (description)</label>
+              <input value={form.colours} onChange={set("colours")} placeholder="e.g. Warm grey, Oatmeal" />
             </div>
           </div>
-          <div className="form-field">
-            <label>Quality notes</label>
-            <input value={form.quality} onChange={set("quality")} placeholder="e.g. Top seller ★★★★★" />
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div className="form-field">
+              <label>Dimensions</label>
+              <input value={form.dimensions} onChange={set("dimensions")} placeholder="e.g. W220 D90 H78cm" />
+            </div>
+            <div className="form-field">
+              <label>Quality notes</label>
+              <input value={form.quality} onChange={set("quality")} placeholder="e.g. 4.8★ 2,300 reviews" />
+            </div>
           </div>
+
+          <div className="form-field">
+            <label>Your rating</label>
+            <StarPicker value={form.rating} onChange={setVal("rating")} />
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             <div className="form-field">
               <label>Lead time</label>
-              <input value={form.leadTime} onChange={set("leadTime")} />
+              <select value={form.leadTime} onChange={set("leadTime")}>
+                {LEAD_TIME_OPTIONS.map(t=><option key={t}>{t}</option>)}
+              </select>
             </div>
             <div className="form-field">
               <label>Availability</label>
@@ -224,18 +340,26 @@ function AddItemModal({ onClose, onSave, shopOptions }) {
               </select>
             </div>
           </div>
+
           <div className="form-field">
             <label>Curator notes</label>
-            <textarea rows={2} value={form.notes} onChange={set("notes")} />
+            <textarea rows={2} value={form.notes} onChange={set("notes")} placeholder="Personal notes, pairs well with, HDB fit etc." />
           </div>
+
           <div className="form-field">
             <label>Photo URL</label>
-            <input value={form.photo} onChange={set("photo")} placeholder="https://..." />
+            <input value={form.photo.startsWith("data:") ? "" : form.photo} onChange={set("photo")}
+              placeholder={form.photo.startsWith("data:") ? "Using uploaded photo — clear to enter a URL instead" : "https://..."} />
+            <PhotoPreview src={form.photo} />
+          </div>
+          <div className="form-field">
+            <label>Or upload a photo (JPG/PNG)</label>
+            <input type="file" accept="image/jpeg,image/png" onChange={handlePhotoUpload} />
           </div>
         </div>
         <div className="modal-footer">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={submit}>Add item</button>
+          <button className="btn-primary" onClick={submit}>{isEdit ? "Save changes" : "Add item"}</button>
         </div>
       </div>
     </div>
@@ -253,10 +377,14 @@ export default function Database() {
   const [selected, setSelected] = useState(null);
   const [imgError, setImgError] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [customItems, setCustomItems] = useState(() => getCustomFurniture());
+  const [editingItem, setEditingItem] = useState(null);
+  const [allFurniture, setAllFurniture] = useState(() => getCustomFurniture());
+  const [toast, setToast] = useState(null);
 
-  const allFurniture = useMemo(() => [...furniture, ...customItems], [customItems]);
-  const shopOptions = useMemo(() => [...new Set(allFurniture.map(f=>f.shop))].sort(), [allFurniture]);
+  function showToast(t) {
+    setToast(t);
+    setTimeout(() => setToast(null), 3500);
+  }
 
   const filtered = useMemo(() => allFurniture.filter(f => {
     const q = search.toLowerCase();
@@ -270,16 +398,18 @@ export default function Database() {
     return matchSearch && matchCat && matchVibe && matchSrc && matchTier && matchColour && matchSize;
   }), [allFurniture, search, catFilter, vibeFilter, srcFilter, tierFilter, colourFilter, minSizeMm]);
 
-  function handleSave(item) {
-    const updated = addCustomFurniture(item);
-    setCustomItems(updated);
+  function handleSave(item, isEdit) {
+    if (isEdit) saveFurnitureItem(item);
+    else addFurnitureItem(item);
+    setAllFurniture(getCustomFurniture());
     setShowAddModal(false);
+    setEditingItem(null);
   }
 
   function handleDelete(id) {
     if (!window.confirm("Remove this item from your database?")) return;
-    const updated = deleteCustomFurniture(id);
-    setCustomItems(updated);
+    deleteFurnitureItem(id);
+    setAllFurniture(getCustomFurniture());
     setSelected(null);
   }
 
@@ -320,7 +450,16 @@ export default function Database() {
         <div className="db-count">{filtered.length} items</div>
       </div>
 
-      {showAddModal && <AddItemModal onClose={()=>setShowAddModal(false)} onSave={handleSave} shopOptions={shopOptions} />}
+      {(showAddModal || editingItem) && (
+        <ItemFormModal
+          item={editingItem}
+          onClose={()=>{setShowAddModal(false);setEditingItem(null);}}
+          onSave={handleSave}
+          onToast={showToast}
+        />
+      )}
+
+      {toast && <div className={`app-toast ${toast.type === "success" ? "success" : "warn"}`}>{toast.message}</div>}
 
       <div className="db-table-wrap">
         <table className="db-table">
@@ -344,7 +483,7 @@ export default function Database() {
               <>
                 <tr key={f.id} className={selected?.id===f.id?"row-selected":""}>
                   <td className="td-id">{f.id}</td>
-                  <td className="td-name">{f.name}{f.custom && <span className="custom-badge">Your addition</span>}</td>
+                  <td className="td-name">{f.name}{f._isAddition && <span className="custom-badge">Your addition</span>}</td>
                   <td><Pill label={f.category} style={CAT_STYLE[f.category]||{}} /></td>
                   <td>
                     <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
@@ -381,7 +520,7 @@ export default function Database() {
                             <div className="drawer-field"><span className="df-label">Shop</span><span>{f.shop}</span></div>
                             <div className="drawer-field"><span className="df-label">SKU</span><span className="mono">{f.sku}</span></div>
                             <div className="drawer-field"><span className="df-label">Listed price</span><span className="df-price">${f.price.toLocaleString()} SGD</span></div>
-                            <div className="drawer-field"><span className="df-label">Supplier price</span><span className="df-empty">— not set</span></div>
+                            <div className="drawer-field"><span className="df-label">Supplier price</span>{f.supplierPrice ? <span className="df-price">${Number(f.supplierPrice).toLocaleString()} SGD</span> : <span className="df-empty">— not set</span>}</div>
                             <div className="drawer-field"><span className="df-label">Materials</span><span>{f.materials}</span></div>
                             <div className="drawer-field"><span className="df-label">Dimensions</span><span>{f.dimensions}</span></div>
                             <div className="drawer-field"><span className="df-label">Colours</span>
@@ -394,12 +533,15 @@ export default function Database() {
                               </div>
                             </div>
                             <div className="drawer-field"><span className="df-label">Rooms</span><span>{(f.rooms||[]).join(", ")}</span></div>
+                            <div className="drawer-field"><span className="df-label">Quality</span><span>{f.quality}</span></div>
+                            <div className="drawer-field"><span className="df-label">Your rating</span><span>{f.rating ? "★".repeat(f.rating) + "☆".repeat(5-f.rating) : "— not set"}</span></div>
                           </div>
                           <div className="drawer-desc">{f.description}</div>
                           <div className="drawer-notes"><span className="df-label">Curator notes: </span>{f.notes}</div>
                           <div className="drawer-actions">
                             {f.url && <a href={f.url} target="_blank" rel="noreferrer" className="drawer-link">View on {f.shop} ↗</a>}
-                            {f.custom && <button className="drawer-delete-btn" onClick={()=>handleDelete(f.id)}>Remove from database</button>}
+                            <button className="btn-ghost" style={{padding:"4px 12px",fontSize:12}} onClick={()=>setEditingItem(f)}>Edit</button>
+                            {f._isAddition && <button className="drawer-delete-btn" onClick={()=>handleDelete(f.id)}>Delete</button>}
                           </div>
                         </div>
                       </div>

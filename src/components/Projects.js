@@ -1,9 +1,39 @@
 import { useState } from "react";
 import { VIBES } from "../data/furniture";
 
-export default function Projects({ projects, onCreate, onOpen, onDelete }) {
+function ClientPicker({ clients, value, onChange, placeholder = "Search clients…" }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = clients.find(c => c.id === value);
+  const matches = clients.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="client-picker">
+      <input
+        className="client-picker-input"
+        value={open ? query : (selected ? selected.name : "")}
+        onFocus={() => { setOpen(true); setQuery(""); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={e => setQuery(e.target.value)}
+        placeholder={placeholder}
+      />
+      {open && (
+        <div className="client-picker-dropdown">
+          <div className="client-picker-option" onMouseDown={() => { onChange(null); setOpen(false); }}>No client</div>
+          {matches.length === 0 && <div className="client-picker-empty">No matches</div>}
+          {matches.map(c => (
+            <div key={c.id} className="client-picker-option" onMouseDown={() => { onChange(c.id); setOpen(false); }}>{c.name}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Projects({ projects, clients, onCreate, onOpen, onDelete, onAssignClient }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ clientName:"", budget:"", vibes:[], notes:"" });
+  const [form, setForm] = useState({ clientName:"", budget:"", vibes:[], notes:"", clientId:null });
+  const [assigningId, setAssigningId] = useState(null);
 
   function toggleVibe(v) {
     setForm(f => ({ ...f, vibes: f.vibes.includes(v) ? f.vibes.filter(x=>x!==v) : [...f.vibes, v] }));
@@ -14,7 +44,7 @@ export default function Projects({ projects, onCreate, onOpen, onDelete }) {
     if (!form.budget) return alert("Please enter a budget");
     onCreate({ ...form, budget: parseInt(form.budget) });
     setShowForm(false);
-    setForm({ clientName:"", budget:"", vibes:[], notes:"" });
+    setForm({ clientName:"", budget:"", vibes:[], notes:"", clientId:null });
   }
 
   return (
@@ -38,6 +68,10 @@ export default function Projects({ projects, onCreate, onOpen, onDelete }) {
               <div className="form-field">
                 <label>Client name</label>
                 <input placeholder="e.g. Tan family" value={form.clientName} onChange={e => setForm(f=>({...f,clientName:e.target.value}))} />
+              </div>
+              <div className="form-field">
+                <label>Link to client (optional)</label>
+                <ClientPicker clients={clients} value={form.clientId} onChange={id => setForm(f => ({ ...f, clientId: id }))} />
               </div>
               <div className="form-field">
                 <label>Total budget (SGD)</label>
@@ -77,6 +111,7 @@ export default function Projects({ projects, onCreate, onOpen, onDelete }) {
           {projects.map(p => {
             const itemCount = p.rooms.reduce((sum, r) => sum + Object.values(r.sections||{}).flat().length, 0);
             const spent = p.rooms.reduce((sum, r) => sum + Object.values(r.sections||{}).flat().reduce((s,i)=>s+i.price,0), 0);
+            const linkedClient = clients.find(c => c.id === p.clientId);
             return (
               <div key={p.id} className="project-card" onClick={() => onOpen(p)}>
                 <div className="project-card-top">
@@ -84,6 +119,23 @@ export default function Projects({ projects, onCreate, onOpen, onDelete }) {
                   <button className="project-delete-btn" onClick={e=>{e.stopPropagation();if(window.confirm("Delete this project?"))onDelete(p.id)}}>✕</button>
                 </div>
                 <div className="project-card-name">{p.clientName}</div>
+                {linkedClient ? (
+                  <div className="project-card-client">Client: {linkedClient.name}</div>
+                ) : (
+                  <div className="project-card-client unlinked" onClick={e => { e.stopPropagation(); setAssigningId(assigningId === p.id ? null : p.id); }}>
+                    Unlinked
+                    <button className="btn-ghost project-assign-btn" onClick={e => { e.stopPropagation(); setAssigningId(assigningId === p.id ? null : p.id); }}>Assign to client</button>
+                    {assigningId === p.id && (
+                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 6 }}>
+                        <ClientPicker
+                          clients={clients}
+                          value={null}
+                          onChange={id => { onAssignClient(p.id, id); setAssigningId(null); }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="project-card-vibes">{p.vibes.slice(0,3).map(v=><span key={v} className="vibe-chip">{v}</span>)}</div>
                 <div className="project-card-footer">
                   <span className="project-card-stat">{itemCount} items</span>
